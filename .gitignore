@@ -140,3 +140,9 @@ dmypy.json
 
 # meta data in macOS
 .DS_Store
+
+# ply and others
+*.ply
+*.npy
+*.npz
+*.pkl

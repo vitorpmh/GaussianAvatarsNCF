@@ -40,6 +40,85 @@ class FlameGaussianModel(GaussianModel):
             self.binding = torch.arange(len(self.flame_model.faces)).cuda()
             self.binding_counter = torch.ones(len(self.flame_model.faces), dtype=torch.int32).cuda()
 
+
+    def get_landmarks(self, timestep = 0, original=True):
+        self.timestep = timestep
+        flame_param = self.flame_param_orig if original and self.flame_param_orig != None else self.flame_param
+
+        landmarks = self.flame_model(
+            flame_param['shape'][None, ...],
+            flame_param['expr'][[timestep]],
+            flame_param['rotation'][[timestep]],
+            flame_param['neck_pose'][[timestep]],
+            flame_param['jaw_pose'][[timestep]],
+            flame_param['eyes_pose'][[timestep]],
+            flame_param['translation'][[timestep]],
+            zero_centered_at_root_node=False,
+            return_landmarks=True,
+            return_verts_cano=True,
+            static_offset=flame_param['static_offset'],
+            dynamic_offset=flame_param['dynamic_offset'][[timestep]],
+        )
+        landmarks = landmarks[-1]
+        return landmarks
+    
+    def get_landmarks_from_meshes(self, timestep = 0, original=True):
+        self.timestep = timestep
+        flame_param = self.flame_param_orig if original and self.flame_param_orig != None else self.flame_param
+
+        landmarks = self.flame_model(
+            flame_param['shape'][None, ...],
+            flame_param['expr'][[timestep]],
+            flame_param['rotation'][[timestep]],
+            flame_param['neck_pose'][[timestep]],
+            flame_param['jaw_pose'][[timestep]],
+            flame_param['eyes_pose'][[timestep]],
+            flame_param['translation'][[timestep]],
+            zero_centered_at_root_node=False,
+            return_landmarks=True,
+            return_verts_cano=True,
+            static_offset=flame_param['static_offset'],
+            dynamic_offset=flame_param['dynamic_offset'][[timestep]],
+        )
+        mesh = landmarks[0].squeeze(0).cpu().numpy()
+        
+        ears = [678, 554, 790, 890, 618, 621, 860, 536, 990, 901, 522, 524, 869, 872, 1488, 2655, 1265, 1157, 1963, 2211, 2210, 1960, 3056, 2217, 2216, 1311, 2263, 2996, 29, 28, 369, 188, 187, 204, 541, 179, 178, 71, 68, 197, 198, 42, 98, 733, 732, 731, 730, 567, 566, 3757, 3653, 3425, 3486, 1961, 1962, 2212, 2213, 2214, 2215, 2262, 2175, 2004, 565, 568, 729, 728, 735, 734, 1921, 806, 446, 411, 805]
+        eyebrows = [3869, 706, 707, 1473, 668, 669, 693, 2141, 2137, 2136, 1472, 1471, 2161, 3908, 2090, 2186, 3718, 3782, 2197, 3173, 2198, 2608, 2610, 2609, 2166, 3155, 2167, 3156]
+        nose = [3526, 2744, 3817, 2084, 695, 3561]
+        mouth = [2883, 1751, 1582, 3506, 2866, 3543, 1850, 2939]
+        chin_jaw = [3584, 3588, 3593, 3596, 3599, 3601, 3479, 3740, 3486, 1960, 3757, 565, 3381, 3384, 3386, 3388, 3390, 3391, 3394, 3396, 3398, 3400, 3577, 3580, 3582]
+        bottom_nose_under_lips_ = [3491, 2947, 2791, 1864, 1673, 1674, 1799, 1805, 3502, 3507, 2902, 3769, 2908]
+        cheeks = [2018, 2019, 2185, 590, 591, 688, 2096, 3123, 2101, 3128]
+        hair = [3077, 3719, 2956, 3870, 3755, 3889, 3519, 583, 3528, 588, 2128, 2129, 1874, 3163, 3166, 2015, 2016, 3170, 2148, 2154, 2158, 631, 632, 2042]
+        eyes = [899, 1414, 909, 2580, 3860, 1044, 2455, 2327, 2581, 2331, 2465, 2551, 2596, 2600, 1193, 951, 959, 1346, 1347, 2372, 1350, 4051, 1373, 1375, 2278, 3688, 3827, 4597, 4853, 2294, 2297, 1020, 1405]
+        neck = [3458, 3459, 3206, 3207, 1931, 3342, 3343, 1934, 3218, 3351, 3352, 2976, 2979, 2980, 3364, 552, 3241, 3242, 559, 3378, 3252, 3253, 3265, 3283, 3288, 1898, 3309, 3310, 1901, 1902, 3697, 3321, 3707, 3453]
+        joined = ears + eyebrows + nose + mouth + chin_jaw + bottom_nose_under_lips_ + cheeks + hair + eyes + neck
+        
+        
+        new_lmk = mesh[joined]
+        return new_lmk
+
+    def get_meshes(self, timestep = 0, original=True):
+        self.timestep = timestep
+        flame_param = self.flame_param_orig if original and self.flame_param_orig != None else self.flame_param
+
+        landmarks = self.flame_model(
+            flame_param['shape'][None, ...],
+            flame_param['expr'][[timestep]],
+            flame_param['rotation'][[timestep]],
+            flame_param['neck_pose'][[timestep]],
+            flame_param['jaw_pose'][[timestep]],
+            flame_param['eyes_pose'][[timestep]],
+            flame_param['translation'][[timestep]],
+            zero_centered_at_root_node=False,
+            return_landmarks=True,
+            return_verts_cano=True,
+            static_offset=flame_param['static_offset'],
+            dynamic_offset=flame_param['dynamic_offset'][[timestep]],
+        )
+        mesh = landmarks[0]
+        return mesh
+
     def load_meshes(self, train_meshes, test_meshes, tgt_train_meshes, tgt_test_meshes):
         if self.flame_param is None:
             meshes = {**train_meshes, **test_meshes}

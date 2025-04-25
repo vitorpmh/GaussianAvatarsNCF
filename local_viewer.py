@@ -20,7 +20,7 @@ from PIL import Image
 from scipy.spatial.transform import Rotation as R
 from scipy.interpolate import interp1d
 import matplotlib
-
+from uuid import uuid4
 from utils.viewer_utils import Mini3DViewer, Mini3DViewerConfig
 from gaussian_renderer import GaussianModel, FlameGaussianModel
 from gaussian_renderer import render
@@ -106,11 +106,22 @@ class LocalViewer(Mini3DViewer):
         # unselected_fid = self.gaussians.flame_model.mask.get_fid_except_fids(selected_fid)
         unselected_fid = []
         
+        
         if self.cfg.point_path is not None:
             if self.cfg.point_path.exists():
                 self.gaussians.load_ply(self.cfg.point_path, has_target=False, motion_path=self.cfg.motion_path, disable_fid=unselected_fid)
             else:
                 raise FileNotFoundError(f'{self.cfg.point_path} does not exist.')
+        
+        if (Path(self.cfg.point_path).parent / "flame_param.npz").exists():
+            id = Path(self.cfg.point_path).parent.name
+            self.gaussians.save_ply_3dgs_format(f'media/output_{id}.ply')
+            np.save(f"media/lmk_{id}.npy",
+                self.gaussians.get_landmarks().squeeze(0).cpu().numpy())
+            np.save(f"media/mesh_{id}.npy",
+                self.gaussians.get_meshes().squeeze(0).cpu().numpy())
+            np.save(f"media/selected_lmk_{id}.npy",
+                self.gaussians.get_landmarks_from_meshes())
 
     def refresh_stat(self):
         if self.last_time_fresh is not None:

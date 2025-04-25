@@ -26,6 +26,53 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation
 
 class GaussianModel:
 
+    def construct_list_of_attributes_3dg(self):
+        l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
+        # All channels except the 3 DC
+        for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
+            l.append('f_dc_{}'.format(i))
+        for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
+            l.append('f_rest_{}'.format(i))
+        l.append('opacity')
+        for i in range(self._scaling.shape[1]):
+            l.append('scale_{}'.format(i))
+        for i in range(self._rotation.shape[1]):
+            l.append('rot_{}'.format(i))
+        # if self.binding is not None:
+        #     for i in range(1):
+        #         l.append('binding_{}'.format(i))
+        return l
+    
+
+    def save_ply_3dgs_format(self, path):
+        mkdir_p(os.path.dirname(path))
+
+        xyz = self.get_xyz.detach().cpu().numpy()
+        normals = np.zeros_like(xyz)
+        f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self._opacity.detach().cpu().numpy()
+        
+        scale_ = self.get_scaling
+        inverted_scales = self.scaling_inverse_activation(scale_)
+        scale = inverted_scales.detach().cpu().numpy()
+        
+        rotation = self.get_rotation.detach().cpu().numpy()
+
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes_3dg()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+
+        # if self.binding is not None:
+        #     binding = self.binding.detach().cpu().numpy()
+        #     attributes = np.concatenate((attributes, binding[:, None]), axis=1)
+
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
+     
+
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
