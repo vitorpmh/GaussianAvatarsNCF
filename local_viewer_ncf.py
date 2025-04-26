@@ -6,6 +6,7 @@
 # is strictly prohibited.
 #
 
+import copy
 import json
 import math
 import tyro
@@ -25,7 +26,8 @@ from utils.viewer_utils import Mini3DViewer, Mini3DViewerConfig
 from gaussian_renderer import GaussianModel, FlameGaussianModel
 from gaussian_renderer import render
 from mesh_renderer import NVDiffRenderer
-
+from ifmorph.util import warp_points_ncf
+from ifmorph.model import from_pth
 
 @dataclass
 class PipelineConfig:
@@ -40,7 +42,9 @@ class Config(Mini3DViewerConfig):
     """Pipeline settings for gaussian splatting rendering"""
     cam_convention: Literal["opengl", "opencv"] = "opencv"
     """Camera convention"""
-    point_path: Optional[Path] = None
+    point_path_1: Optional[Path] = None
+    """Path to the gaussian splatting file"""
+    point_path_2: Optional[Path] = None
     """Path to the gaussian splatting file"""
     motion_path: Optional[Path] = None
     """Path to the motion file (npz)"""
@@ -60,6 +64,8 @@ class Config(Mini3DViewerConfig):
     load it like a normal sequence. """
     demo_mode: bool = False
     """The UI will be simplified in demo mode."""
+    warp_file_checkpoint: Optional[Path] = None
+    """Path to the warp file checkpoint"""
 
 class LocalViewer(Mini3DViewer):
     def __init__(self, cfg: Config):
@@ -74,7 +80,7 @@ class LocalViewer(Mini3DViewer):
         print("Initializing 3D Gaussians...")
         self.init_gaussians()
 
-        if self.gaussians.binding is not None:
+        if self.gaussians_1.binding is not None:
             # rendering settings
             self.mesh_color = torch.tensor([1, 1, 1, 0.5])
             self.face_colors = None
@@ -82,49 +88,102 @@ class LocalViewer(Mini3DViewer):
             self.mesh_renderer = NVDiffRenderer(use_opengl=False)
         
         # FLAME parameters
-        if self.gaussians.binding is not None:
+        if self.gaussians_1.binding is not None:
+            # rendering settings
+            self.mesh_color = torch.tensor([1, 1, 1, 0.5])
+            self.face_colors = None
+            print("Initializing mesh renderer...")
+            self.mesh_renderer = NVDiffRenderer(use_opengl=False)
+        
+        # FLAME parameters
+        if self.gaussians_1.binding is not None:
             print("Initializing FLAME parameters...")
             self.reset_flame_param()
         
         super().__init__(cfg, 'GaussianAvatars - Local Viewer')
 
-        if self.gaussians.binding is not None:
-            self.num_timesteps = self.gaussians.num_timesteps
+        if self.gaussians_1.binding is not None:
+            self.num_timesteps = self.gaussians_1.num_timesteps
             dpg.configure_item("_slider_timestep", max_value=self.num_timesteps - 1)
 
-            self.gaussians.select_mesh_by_timestep(self.timestep)
-
-        self.original_xyz = self.gaussians._xyz.clone()
-        self.translation_offset = torch.zeros(3).cuda()
+            self.gaussians_1.select_mesh_by_timestep(self.timestep)
 
     def init_gaussians(self):
         # load gaussians
-        if (Path(self.cfg.point_path).parent / "flame_param.npz").exists():
-            self.gaussians = FlameGaussianModel(self.cfg.sh_degree)
+        if (Path(self.cfg.point_path_1).parent / "flame_param.npz").exists():
+            self.gaussians_1 = FlameGaussianModel(self.cfg.sh_degree)
         else:
-            self.gaussians = GaussianModel(self.cfg.sh_degree)
+            self.gaussians_1 = GaussianModel(self.cfg.sh_degree)
+            self.gaussians_2 = GaussianModel(self.cfg.sh_degree)
 
-        # selected_fid = self.gaussians.flame_model.mask.get_fid_by_region(['left_half'])
-        # selected_fid = self.gaussians.flame_model.mask.get_fid_by_region(['right_half'])
-        # unselected_fid = self.gaussians.flame_model.mask.get_fid_except_fids(selected_fid)
+        # selected_fid = self.gaussians_1.flame_model.mask.get_fid_by_region(['left_half'])
+        # selected_fid = self.gaussians_1.flame_model.mask.get_fid_by_region(['right_half'])
+        # unselected_fid = self.gaussians_1.flame_model.mask.get_fid_except_fids(selected_fid)
         unselected_fid = []
         
         
-        if self.cfg.point_path is not None:
-            if self.cfg.point_path.exists():
-                self.gaussians.load_ply(self.cfg.point_path, has_target=False, motion_path=self.cfg.motion_path, disable_fid=unselected_fid)
+        if self.cfg.point_path_1 is not None:
+            if self.cfg.point_path_1.exists():
+                self.gaussians_1.load_ply(self.cfg.point_path_1, has_target=False, motion_path=self.cfg.motion_path, disable_fid=unselected_fid)
+                if self.cfg.point_path_2 is not None:
+                    self.gaussians_2.load_ply(self.cfg.point_path_2, has_target=False, motion_path=self.cfg.motion_path, disable_fid=unselected_fid)
+                    self.gaussians_mid = copy.deepcopy(self.gaussians_1)
+                    weights_file = self.cfg.warp_file_checkpoint
+                    warp_net = torch.load(weights_file, map_location="cuda:0", weights_only=False)
+                    self.warp_net = warp_net.to("cuda:0").eval().to(dtype=torch.float32)
+                    self.join_gaussians(0.5, self.warp_net)
             else:
-                raise FileNotFoundError(f'{self.cfg.point_path} does not exist.')
+                raise FileNotFoundError(f'{self.cfg.point_path_1} does not exist.')
         
-        if (Path(self.cfg.point_path).parent / "flame_param.npz").exists():
-            id = Path(self.cfg.point_path).parent.name
-            self.gaussians.save_ply_3dgs_format(f'media/output_{id}.ply')
+        if (Path(self.cfg.point_path_1).parent / "flame_param.npz").exists():
+            id = Path(self.cfg.point_path_1).parent.name
+            self.gaussians_1.save_ply_3dgs_format(f'media/output_{id}.ply')
             np.save(f"media/lmk_{id}.npy",
-                self.gaussians.get_landmarks().squeeze(0).cpu().numpy())
+                self.gaussians_1.get_landmarks().squeeze(0).cpu().numpy())
             np.save(f"media/mesh_{id}.npy",
-                self.gaussians.get_meshes().squeeze(0).cpu().numpy())
+                self.gaussians_1.get_meshes().squeeze(0).cpu().numpy())
             np.save(f"media/selected_lmk_{id}.npy",
-                self.gaussians.get_landmarks_from_meshes())
+                self.gaussians_1.get_landmarks_from_meshes())
+    def join_gaussians(self, t, warp_net):
+
+        xyz_1 = self.gaussians_1.get_xyz
+        xyz_2 = self.gaussians_2.get_xyz
+
+        xyz_1_warp = warp_points_ncf(warp_net, xyz_1, t)
+        xyz_2_warp = warp_points_ncf(warp_net, xyz_2, t-1)
+
+        features_dc_1 = self.gaussians_1._features_dc
+        features_dc_2 = self.gaussians_2._features_dc
+
+        features_rest_1 = self.gaussians_1._features_rest
+        features_rest_2 = self.gaussians_2._features_rest
+
+        scaling_1 = self.gaussians_1._scaling
+        scaling_2 = self.gaussians_2._scaling
+
+        rotation_1 = self.gaussians_1._rotation
+        rotation_2 = self.gaussians_2._rotation
+
+        opacity_1_blend = self.gaussians_1.get_opacity * (1-t)
+        opacity_2_blend = self.gaussians_2.get_opacity * t
+
+        new_opacity_feat_1 = self.gaussians_1.inverse_opacity_activation(opacity_1_blend)
+        new_opacity_feat_2 = self.gaussians_2.inverse_opacity_activation(opacity_2_blend)
+
+        self.gaussians_mid._features_dc = torch.concat([features_dc_1, features_dc_2], dim=0)
+        self.gaussians_mid._features_rest = torch.concat([features_rest_1, features_rest_2], dim=0)
+        self.gaussians_mid._scaling = torch.concat([scaling_1, scaling_2], dim=0)
+        self.gaussians_mid._rotation = torch.concat([rotation_1, rotation_2], dim=0)
+        self.gaussians_mid._opacity = torch.concat([new_opacity_feat_1, new_opacity_feat_2], dim=0)
+
+
+
+        self.gaussians_mid._xyz = torch.concat([xyz_1_warp, xyz_2_warp], dim=0)
+
+    
+
+
+
 
     def refresh_stat(self):
         if self.last_time_fresh is not None:
@@ -290,7 +349,7 @@ class LocalViewer(Mini3DViewer):
             if dpg.get_value("_checkbox_dynamic_record"):
                 self.timestep = min(self.timestep + 1, self.num_timesteps - 1)
                 dpg.set_value("_slider_timestep", self.timestep)
-                self.gaussians.select_mesh_by_timestep(self.timestep)
+                self.gaussians_1.select_mesh_by_timestep(self.timestep)
         
         traj_dict['timestep_indices'] = sorted(list(set(timestep_indices)))
         traj_dict['camera_indices'] = sorted(list(set(camera_indices)))
@@ -303,35 +362,26 @@ class LocalViewer(Mini3DViewer):
 
     def reset_flame_param(self):
         self.flame_param = {
-            'expr': torch.zeros(1, self.gaussians.n_expr),
+            'expr': torch.zeros(1, self.gaussians_1.n_expr),
             'rotation': torch.zeros(1, 3),
             'neck': torch.zeros(1, 3),
             'jaw': torch.zeros(1, 3),
             'eyes': torch.zeros(1, 6),
             'translation': torch.zeros(1, 3),
         }
-    def callback_translate(self, sender, app_data):
-        axis_map = {
-            "_slider_translate_x": 0,
-            "_slider_translate_y": 1,
-            "_slider_translate_z": 2,
-        }
+    def callback_update_time(self, sender, app_data):
+        t = app_data  # t in [0.0, 1.0]
+        self.join_gaussians(t, self.warp_net)  # assumes self.warp_net is set
+        self.need_update = True
 
-        axis = axis_map[sender]
-        self.translation_offset[axis] = app_data
-
-        # Apply translation
-        self.gaussians._xyz = self.original_xyz + self.translation_offset[None, :]
-        self.need_update = True  
     def define_gui(self):
         super().define_gui()
-        with dpg.window(label="Transformations", tag="_transform_window", autosize=True):
-            dpg.add_slider_float(label="Translate X", tag="_slider_translate_x", min_value=-1.0, max_value=1.0,
-                                default_value=0.0, callback=self.callback_translate, width=200)
-            dpg.add_slider_float(label="Translate Y", tag="_slider_translate_y", min_value=-1.0, max_value=1.0,
-                                default_value=0.0, callback=self.callback_translate, width=200)
-            dpg.add_slider_float(label="Translate Z", tag="_slider_translate_z", min_value=-1.0, max_value=1.0,
-                                default_value=0.0, callback=self.callback_translate, width=200)
+        with dpg.window(label="Blend", tag="_Blend_window", autosize=True, pos=(self.W//2, 0)):
+            dpg.add_slider_float(
+                label="Time (t)", tag="_slider_time_t",
+                min_value=0.0, max_value=1.0, default_value=0.0,
+                callback=self.callback_update_time
+            )
 
         # window: rendering options ==================================================================================================
         with dpg.window(label="Render", tag="_render_window", autosize=True):
@@ -340,7 +390,7 @@ class LocalViewer(Mini3DViewer):
                 dpg.add_text("FPS:", show=not self.cfg.demo_mode)
                 dpg.add_text("0   ", tag="_log_fps", show=not self.cfg.demo_mode)
 
-            dpg.add_text(f"number of points: {self.gaussians._xyz.shape[0]}")
+            dpg.add_text(f"number of points: {self.gaussians_1._xyz.shape[0]}")
             
             with dpg.group(horizontal=True):
                 # show splatting
@@ -350,7 +400,7 @@ class LocalViewer(Mini3DViewer):
 
                 dpg.add_spacer(width=10)
 
-                if self.gaussians.binding is not None:
+                if self.gaussians_1.binding is not None:
                     # show mesh
                     def callback_show_mesh(sender, app_data):
                         self.need_update = True
@@ -377,7 +427,7 @@ class LocalViewer(Mini3DViewer):
                         self.timestep = self.num_timesteps - 1
 
                     dpg.set_value("_slider_timestep", self.timestep)
-                    self.gaussians.select_mesh_by_timestep(self.timestep)
+                    self.gaussians_1.select_mesh_by_timestep(self.timestep)
 
                     self.need_update = True
                 with dpg.group(horizontal=True):
@@ -402,17 +452,17 @@ class LocalViewer(Mini3DViewer):
                 self.need_update = True
             dpg.add_slider_int(label="FoV (vertical)", min_value=1, max_value=120, width=200, format="%d deg", default_value=self.cam.fovy, callback=callback_set_fovy, tag="_slider_fovy", show=not self.cfg.demo_mode)
 
-            if self.gaussians.binding is not None:
+            if self.gaussians_1.binding is not None:
                 # visualization options
                 def callback_visual_options(sender, app_data):
                     if app_data == 'number of points per face':
-                        value, ct = self.gaussians.binding.unique(return_counts=True)
+                        value, ct = self.gaussians_1.binding.unique(return_counts=True)
                         ct = torch.log10(ct + 1)
                         ct = ct.float() / ct.max()
                         cmap = matplotlib.colormaps["plasma"]
-                        self.face_colors = torch.from_numpy(cmap(ct.cpu())[None, :, :3]).to(self.gaussians.verts)
+                        self.face_colors = torch.from_numpy(cmap(ct.cpu())[None, :, :3]).to(self.gaussians_1.verts)
                     else:
-                        self.face_colors = self.mesh_color[:3].to(self.gaussians.verts)[None, None, :].repeat(1, self.gaussians.face_center.shape[0], 1)  # (1, F, 3)
+                        self.face_colors = self.mesh_color[:3].to(self.gaussians_1.verts)[None, None, :].repeat(1, self.gaussians_1.face_center.shape[0], 1)  # (1, F, 3)
                     
                     dpg.set_value('_checkbox_show_mesh', True)
                     self.need_update = True
@@ -422,7 +472,7 @@ class LocalViewer(Mini3DViewer):
                 def callback_change_mesh_color(sender, app_data):
                     self.mesh_color = torch.tensor(app_data, dtype=torch.float32)  # only need RGB in [0, 1]
                     if dpg.get_value("_visual_options") == 'none':
-                        self.face_colors = self.mesh_color[:3].to(self.gaussians.verts)[None, None, :].repeat(1, self.gaussians.face_center.shape[0], 1)
+                        self.face_colors = self.mesh_color[:3].to(self.gaussians_1.verts)[None, None, :].repeat(1, self.gaussians_1.face_center.shape[0], 1)
                     self.need_update = True
                 dpg.add_color_edit((self.mesh_color*255).tolist(), label="Mesh Color", width=200, callback=callback_change_mesh_color, show=not self.cfg.demo_mode)
 
@@ -559,13 +609,13 @@ class LocalViewer(Mini3DViewer):
                 dpg.add_button(label="save image", tag="_button_save_image", callback=callback_save_image)
 
         # window: FLAME ==================================================================================================
-        if self.gaussians.binding is not None:
+        if self.gaussians_1.binding is not None:
             with dpg.window(label="FLAME parameters", tag="_flame_window", autosize=True, pos=(self.W-300, 0)):
                 def callback_enable_control(sender, app_data):
                     if app_data:
-                        self.gaussians.update_mesh_by_param_dict(self.flame_param)
+                        self.gaussians_1.update_mesh_by_param_dict(self.flame_param)
                     else:
-                        self.gaussians.select_mesh_by_timestep(self.timestep)
+                        self.gaussians_1.select_mesh_by_timestep(self.timestep)
                     self.need_update = True
                 dpg.add_checkbox(label="enable control", default_value=False, tag="_checkbox_enable_control", callback=callback_enable_control)
 
@@ -579,7 +629,7 @@ class LocalViewer(Mini3DViewer):
                         self.flame_param[joint][0, 3+axis_idx] = app_data
                     if not dpg.get_value("_checkbox_enable_control"):
                         dpg.set_value("_checkbox_enable_control", True)
-                    self.gaussians.update_mesh_by_param_dict(self.flame_param)
+                    self.gaussians_1.update_mesh_by_param_dict(self.flame_param)
                     self.need_update = True
                 dpg.add_text(f'Joints')
                 self.pose_sliders = []
@@ -603,7 +653,7 @@ class LocalViewer(Mini3DViewer):
                     self.flame_param['expr'][0, expr_i] = app_data
                     if not dpg.get_value("_checkbox_enable_control"):
                         dpg.set_value("_checkbox_enable_control", True)
-                    self.gaussians.update_mesh_by_param_dict(self.flame_param)
+                    self.gaussians_1.update_mesh_by_param_dict(self.flame_param)
                     self.need_update = True
                 self.expr_sliders = []
                 dpg.add_text(f'Expressions')
@@ -615,7 +665,7 @@ class LocalViewer(Mini3DViewer):
                     self.reset_flame_param()
                     if not dpg.get_value("_checkbox_enable_control"):
                         dpg.set_value("_checkbox_enable_control", True)
-                    self.gaussians.update_mesh_by_param_dict(self.flame_param)
+                    self.gaussians_1.update_mesh_by_param_dict(self.flame_param)
                     self.need_update = True
                     for slider in self.pose_sliders + self.expr_sliders:
                         dpg.set_value(slider, 0)
@@ -633,7 +683,7 @@ class LocalViewer(Mini3DViewer):
                 if dpg.is_item_hovered("_slider_timestep"):
                     self.timestep = min(max(self.timestep - delta, 0), self.num_timesteps - 1)
                     dpg.set_value("_slider_timestep", self.timestep)
-                    self.gaussians.select_mesh_by_timestep(self.timestep)
+                    self.gaussians_1.select_mesh_by_timestep(self.timestep)
                     self.need_update = True
             dpg.add_mouse_wheel_handler(callback=callbackmouse_wheel_slider)
 
@@ -660,15 +710,21 @@ class LocalViewer(Mini3DViewer):
 
                 if dpg.get_value("_checkbox_show_splatting"):
                     # rgb
-                    rgb_splatting = render(cam, self.gaussians, self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"))["render"].permute(1, 2, 0).contiguous()
-
+                    rgb_splatting = render(cam, self.gaussians_1, self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"))["render"].permute(1, 2, 0).contiguous()
+                    if self.cfg.point_path_2 is not None:
+                        rgb_splatting = render(
+                            cam,
+                            self.gaussians_mid,
+                            self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier")
+                        )["render"].permute(1, 2, 0).contiguous()
+                        
                     # opacity
-                    # override_color = torch.ones_like(self.gaussians._xyz).cuda()
+                    # override_color = torch.ones_like(self.gaussians_1._xyz).cuda()
                     # background_color = torch.tensor(self.cfg.background_color).cuda() * 0
-                    # rgb_splatting = render(cam, self.gaussians, self.cfg.pipeline, background_color, scaling_modifier=dpg.get_value("_slider_scaling_modifier"), override_color=override_color)["render"].permute(1, 2, 0).contiguous()
+                    # rgb_splatting = render(cam, self.gaussians_1, self.cfg.pipeline, background_color, scaling_modifier=dpg.get_value("_slider_scaling_modifier"), override_color=override_color)["render"].permute(1, 2, 0).contiguous()
 
-                if self.gaussians.binding is not None and dpg.get_value("_checkbox_show_mesh"):
-                    out_dict = self.mesh_renderer.render_from_camera(self.gaussians.verts, self.gaussians.faces, cam, face_colors=self.face_colors)
+                if self.gaussians_1.binding is not None and dpg.get_value("_checkbox_show_mesh"):
+                    out_dict = self.mesh_renderer.render_from_camera(self.gaussians_1.verts, self.gaussians_1.faces, cam, face_colors=self.face_colors)
 
                     rgba_mesh = out_dict['rgba'].squeeze(0)  # (H, W, C)
                     rgb_mesh = rgba_mesh[:, :, :3]
@@ -703,7 +759,7 @@ class LocalViewer(Mini3DViewer):
                         if dpg.get_value("_checkbox_dynamic_record"):
                             self.timestep = min(self.timestep + 1, self.num_timesteps - 1)
                             dpg.set_value("_slider_timestep", self.timestep)
-                            self.gaussians.select_mesh_by_timestep(self.timestep)
+                            self.gaussians_1.select_mesh_by_timestep(self.timestep)
 
                         state_dict = self.get_state_dict_record()
                         self.apply_state_dict(state_dict)
