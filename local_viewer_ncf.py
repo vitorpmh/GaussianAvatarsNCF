@@ -131,7 +131,7 @@ class LocalViewer(Mini3DViewer):
                     weights_file = self.cfg.warp_file_checkpoint
                     warp_net = torch.load(weights_file, map_location="cuda:0", weights_only=False)
                     self.warp_net = warp_net.to("cuda:0").eval().to(dtype=torch.float32)
-                    self.join_gaussians(0.5, self.warp_net)
+                    self.join_gaussians(0, self.warp_net)
             else:
                 raise FileNotFoundError(f'{self.cfg.point_path_1} does not exist.')
         
