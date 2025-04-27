@@ -24,7 +24,11 @@ from uuid import uuid4
 from utils.viewer_utils import Mini3DViewer, Mini3DViewerConfig
 from gaussian_renderer import GaussianModel, FlameGaussianModel
 from gaussian_renderer import render
-from mesh_renderer import NVDiffRenderer
+
+NO_MESH_RENDERER = True    
+
+if not NO_MESH_RENDERER:
+    from mesh_renderer import NVDiffRenderer
 
 
 @dataclass
@@ -79,7 +83,8 @@ class LocalViewer(Mini3DViewer):
             self.mesh_color = torch.tensor([1, 1, 1, 0.5])
             self.face_colors = None
             print("Initializing mesh renderer...")
-            self.mesh_renderer = NVDiffRenderer(use_opengl=False)
+            if not NO_MESH_RENDERER:
+                self.mesh_renderer = NVDiffRenderer(use_opengl=False)
         
         # FLAME parameters
         if self.gaussians.binding is not None:
@@ -645,7 +650,7 @@ class LocalViewer(Mini3DViewer):
                     # background_color = torch.tensor(self.cfg.background_color).cuda() * 0
                     # rgb_splatting = render(cam, self.gaussians, self.cfg.pipeline, background_color, scaling_modifier=dpg.get_value("_slider_scaling_modifier"), override_color=override_color)["render"].permute(1, 2, 0).contiguous()
 
-                if self.gaussians.binding is not None and dpg.get_value("_checkbox_show_mesh"):
+                if self.gaussians.binding is not None and dpg.get_value("_checkbox_show_mesh") and not NO_MESH_RENDERER:
                     out_dict = self.mesh_renderer.render_from_camera(self.gaussians.verts, self.gaussians.faces, cam, face_colors=self.face_colors)
 
                     rgba_mesh = out_dict['rgba'].squeeze(0)  # (H, W, C)

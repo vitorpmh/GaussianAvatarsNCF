@@ -25,9 +25,15 @@ from uuid import uuid4
 from utils.viewer_utils import Mini3DViewer, Mini3DViewerConfig
 from gaussian_renderer import GaussianModel, FlameGaussianModel
 from gaussian_renderer import render
-from mesh_renderer import NVDiffRenderer
 from ifmorph.util import warp_points_ncf
 from ifmorph.model import from_pth
+
+
+NO_MESH_VIEWER = True
+
+if not NO_MESH_VIEWER:
+    from mesh_renderer import MeshRenderer
+
 
 @dataclass
 class PipelineConfig:
@@ -80,7 +86,7 @@ class LocalViewer(Mini3DViewer):
         print("Initializing 3D Gaussians...")
         self.init_gaussians()
 
-        if self.gaussians_1.binding is not None:
+        if self.gaussians_1.binding is not None and not NO_MESH_VIEWER:
             # rendering settings
             self.mesh_color = torch.tensor([1, 1, 1, 0.5])
             self.face_colors = None
@@ -88,7 +94,7 @@ class LocalViewer(Mini3DViewer):
             self.mesh_renderer = NVDiffRenderer(use_opengl=False)
         
         # FLAME parameters
-        if self.gaussians_1.binding is not None:
+        if self.gaussians_1.binding is not None and NO_MESH_VIEWER:
             # rendering settings
             self.mesh_color = torch.tensor([1, 1, 1, 0.5])
             self.face_colors = None
@@ -723,7 +729,7 @@ class LocalViewer(Mini3DViewer):
                     # background_color = torch.tensor(self.cfg.background_color).cuda() * 0
                     # rgb_splatting = render(cam, self.gaussians_1, self.cfg.pipeline, background_color, scaling_modifier=dpg.get_value("_slider_scaling_modifier"), override_color=override_color)["render"].permute(1, 2, 0).contiguous()
 
-                if self.gaussians_1.binding is not None and dpg.get_value("_checkbox_show_mesh"):
+                if self.gaussians_1.binding is not None and dpg.get_value("_checkbox_show_mesh") and not NO_MESH_VIEWER:
                     out_dict = self.mesh_renderer.render_from_camera(self.gaussians_1.verts, self.gaussians_1.faces, cam, face_colors=self.face_colors)
 
                     rgba_mesh = out_dict['rgba'].squeeze(0)  # (H, W, C)
