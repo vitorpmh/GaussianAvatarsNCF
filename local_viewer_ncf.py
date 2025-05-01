@@ -459,7 +459,7 @@ class LocalViewer(Mini3DViewer):
             t = dpg.get_value("_slider_time_t")
             while t <1.0 and self.playing_morph:
                 t += 0.001
-                if t>=1: break
+                if t>1: break
                 dpg.set_value("_slider_time_t", t)
                 self.callback_update_time("_slider_time_t", t)
                 time.sleep(0.001)  # adjust speed here
@@ -469,16 +469,148 @@ class LocalViewer(Mini3DViewer):
 
     def stop_slider(self):
         self.playing_morph = False
+
+    def save_move_morph_top(self):
+        self.keyframes = []
+        dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+        self.update_record_timeline()
+        half = len(self.manual_key_frames)//2
+        for idx,keyframe in enumerate(self.manual_key_frames[half:]):
+            self.keyframes.insert(idx, keyframe)
+            dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+            dpg.set_value("_listbox_keyframes", idx)
+            self.update_record_timeline()
+
+        times = np.linspace(0, 1, self.num_record_timeline)
+        
+        self.apply_state_dict({k: self.all_frames[k][0] for k in self.all_frames})
+        self.callback_update_time("_slider_time_t",0)
+        self.need_update = True
+        time.sleep(0.1)
+        
+        for idx in range(self.num_record_timeline):
+            state_dict = {k: self.all_frames[k][idx] for k in self.all_frames}
+            self.apply_state_dict(state_dict)
+            self.callback_update_time("_slider_time_t",times[idx])
+            self.need_update = True
+            time.sleep(0.1)
+
+            
+            name_1 = Path(self.cfg.point_path_1).parent.name
+            name_2 = Path(self.cfg.point_path_2).parent.name
+            folder_name = f"{name_1}-{name_2}"
+            folder_cameras = "top"
+            folder_path = self.cfg.save_folder / folder_name / folder_cameras
+            path = folder_path / f"{idx:04d}.png"
+            if not folder_path.exists():
+                folder_path.mkdir(parents=True)
+            Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
+
+    
+    def save_move_morph_bottom(self):
+        self.keyframes = []
+        dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+        self.update_record_timeline()
+        half = len(self.manual_key_frames)//2
+        for idx,keyframe in enumerate(self.manual_key_frames[:half]):
+            self.keyframes.insert(idx, keyframe)
+            dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+            dpg.set_value("_listbox_keyframes", idx)
+            self.update_record_timeline()
+        
+        times = np.linspace(0, 1, self.num_record_timeline)
+        
+        self.apply_state_dict({k: self.all_frames[k][0] for k in self.all_frames})
+        self.callback_update_time("_slider_time_t",0)
+        self.need_update = True
+        time.sleep(0.1)
+        for idx in range(self.num_record_timeline):
+
+            state_dict = {k: self.all_frames[k][idx] for k in self.all_frames}
+            self.apply_state_dict(state_dict)
+            self.callback_update_time("_slider_time_t",times[idx])
+            self.need_update = True
+            time.sleep(0.1)
+
+            
+            name_1 = Path(self.cfg.point_path_1).parent.name
+            name_2 = Path(self.cfg.point_path_2).parent.name
+            folder_name = f"{name_1}-{name_2}"
+            folder_cameras = "bottom"
+            folder_path = self.cfg.save_folder / folder_name / folder_cameras
+            path = folder_path / f"{idx:04d}.png"
+            if not folder_path.exists():
+                folder_path.mkdir(parents=True)
+            Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
+    
+    def save_move_morph(self):
+        self.keyframes = []
+        dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+        self.update_record_timeline()
+        for idx,keyframe in enumerate(self.manual_key_frames):
+            self.keyframes.insert(idx, keyframe)
+            dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+            dpg.set_value("_listbox_keyframes", idx)
+            self.update_record_timeline()
+
+        times = np.linspace(0, 1, self.num_record_timeline)
+        
+        self.apply_state_dict({k: self.all_frames[k][0] for k in self.all_frames})
+        self.callback_update_time("_slider_time_t",0)
+        self.need_update = True
+        time.sleep(0.1)
+        for idx in range(self.num_record_timeline):
+            state_dict = {k: self.all_frames[k][idx] for k in self.all_frames}
+            self.apply_state_dict(state_dict)
+            self.callback_update_time("_slider_time_t",times[idx])
+            self.need_update = True
+            time.sleep(0.05)
+
+            
+            name_1 = Path(self.cfg.point_path_1).parent.name
+            name_2 = Path(self.cfg.point_path_2).parent.name
+            folder_name = f"{name_1}-{name_2}"
+            folder_cameras = "all"
+            folder_path = self.cfg.save_folder / folder_name / folder_cameras
+            path = folder_path / f"{idx:04d}.png"
+            if not folder_path.exists():
+                folder_path.mkdir(parents=True)
+            Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
+
+
+    def callback_reset_morph(self):
+        self.callback_update_time("_slider_time_t",0)
+        dpg.set_value("_slider_time_t", 0)
+
+    def callback_interval(self, sender, app_data):
+        self.interval = app_data
+        self.keyframes = []
+        dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+        self.update_record_timeline()
+        for idx,keyframe in enumerate(self.manual_key_frames):
+            keyframe['interval'] = self.interval
+            self.keyframes.insert(idx, keyframe)
+            dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+            dpg.set_value("_listbox_keyframes", idx)
+            self.update_record_timeline()
+
     def define_gui(self):
         super().define_gui()
         with dpg.window(label="Blend", tag="_Blend_window", autosize=True, pos=(self.W//2, 0)):
+            
             dpg.add_slider_float(
                 label="Time (t)", tag="_slider_time_t",
                 min_value=0.0, max_value=1.0, default_value=0.0,
                 callback=self.callback_update_time
             )
-            dpg.add_button(label="Play", callback=lambda: self.play_slider())
-            dpg.add_button(label="Stop", callback=lambda: self.stop_slider())
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Play", callback=lambda: self.play_slider())
+                dpg.add_button(label="Stop", callback=lambda: self.stop_slider())
+                dpg.add_button(label="Reset", callback=lambda: self.callback_reset_morph())
+            dpg.add_button(label="SaveMove and morph (bottom cameras)", callback=lambda: self.save_move_morph_bottom())   
+            dpg.add_button(label="Save-Move and morph (top cameras)", callback=lambda: self.save_move_morph_top())   
+            dpg.add_button(label="Save-Move and morph (all cameras)", callback=lambda: self.save_move_morph())   
+            dpg.add_slider_int(label="Set Interval", tag="_slider_set_interval", min_value=1, max_value=100, default_value=10, callback=self.callback_interval)
         # window: rendering options ==================================================================================================
         with dpg.window(label="Render", tag="_render_window", autosize=True):
 
@@ -620,7 +752,6 @@ class LocalViewer(Mini3DViewer):
 
                     self.need_update = True
                 dpg.add_listbox(self.keyframes, width=200, tag="_listbox_keyframes", callback=callback_set_current_keyframe)
-
                 # edit keyframes
                 with dpg.group():
                     # add
@@ -665,7 +796,7 @@ class LocalViewer(Mini3DViewer):
             with dpg.group(horizontal=True):
                 def callback_set_record_cycles(sender, app_data):
                     self.update_record_timeline()
-                dpg.add_input_int(label="cycles", tag="_input_cycles", default_value=0, width=70, callback=callback_set_record_cycles)
+                dpg.add_input_int(label="cycles", tag="_input_cycles", default_value=1, width=70, callback=callback_set_record_cycles)
 
                 def callback_set_keyframe_interval(sender, app_data):
                     self.cfg.keyframe_interval = app_data
@@ -703,7 +834,128 @@ class LocalViewer(Mini3DViewer):
                 Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
             with dpg.group(horizontal=True):
                 dpg.add_button(label="save image", tag="_button_save_image", callback=callback_save_image)
-
+        # add manual key frames
+        self.interval = 1
+        self.manual_key_frames = [
+            {
+                'rot': np.array([0.12845670052713626, 0.3911218873012749, 0.04349290594446551, 0.9102916634222662], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([0.1241163190942145, 0.22927181121348672, 0.022238832291733228, 0.9651606137092886], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([0.11771155320349946, 0.12924004000118156, 0.007559415927074113, 0.9845729315463402], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([0.1273665316891493, 0.04522232790923264, 0.006163521461862363, 0.9908050861128721], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([0.12523362491555481, -0.047280686384868494, -0.00471256756918486, 0.990988833232944], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([0.11963654985759396, -0.12226587629601156, -0.010977756829316329, 0.9851992896296344], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([0.13349822398986533, -0.22328017572370945, -0.023279273355937696, 0.9652886939938543], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([0.13509485099150081, -0.38241998691201334, -0.032130069655336144, 0.9134943861183511], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.11687478737901108, -0.38658575044642157, 0.05522862005676153, 0.9131492436362819], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.11749332239910888, -0.23122632613661667, 0.04562386454794905, 0.9647010771615695], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.13896990148361024, -0.12601667572576697, 0.01859872343436828, 0.9820698811221503], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.1495199668326914, -0.0445583248040299, -0.0006177727061756095, 0.9877539944570677], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.1291004374356289, 0.04658480881616941, -0.013753495479365427, 0.9904412016892217], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.1344806380543836, 0.12426444908253852, -0.012944467828555125, 0.9830085174785286], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.12885595556691845, 0.22656075736373854, -0.035817828226532906, 0.9647711900335955], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+            {
+                'rot': np.array([-0.11919636281810188, 0.3723500763715023, -0.06138207092653921, 0.9183571685819418], dtype=np.float32),
+                'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                'radius': np.array([1.0], dtype=np.float32),
+                'fovy': np.array([20.0], dtype=np.float32),
+                'interval': self.interval,
+            },
+        ]
+        for idx,keyframe in enumerate(self.manual_key_frames):
+            self.keyframes.insert(idx, keyframe)
+            dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+            dpg.set_value("_listbox_keyframes", idx)
+            self.update_record_timeline()
+        self.apply_state_dict(self.manual_key_frames[0])
         # window: FLAME ==================================================================================================
         if self.gaussians_1.binding is not None:
             with dpg.window(label="FLAME parameters", tag="_flame_window", autosize=True, pos=(self.W-300, 0)):

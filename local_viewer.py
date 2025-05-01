@@ -222,7 +222,6 @@ class LocalViewer(Mini3DViewer):
     
     def export_trajectory(self):
         tid2paths = self.parse_ref_json()
-
         if self.num_record_timeline <= 0:
             return
         
@@ -245,7 +244,6 @@ class LocalViewer(Mini3DViewer):
             if not save_folder.exists():
                 save_folder.mkdir(parents=True)
             path = save_folder / f"{i:05d}.png"
-            print(f"Saving image to {path}")
             Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
 
             # cache camera parameters
@@ -403,7 +401,7 @@ class LocalViewer(Mini3DViewer):
 
                 # mesh_color picker
                 def callback_change_mesh_color(sender, app_data):
-                    self.mesh_color = torch.tensor(app_data, dtype=torch.float32)  # only need RGB in [0, 1]
+                    self.mesh_color = torch.tensor(app_data, dtype=torch.np.float32)  # only need RGB in [0, 1]
                     if dpg.get_value("_visual_options") == 'none':
                         self.face_colors = self.mesh_color[:3].to(self.gaussians.verts)[None, None, :].repeat(1, self.gaussians.face_center.shape[0], 1)
                     self.need_update = True
@@ -411,7 +409,7 @@ class LocalViewer(Mini3DViewer):
 
             # # bg_color picker
             # def callback_change_bg(sender, app_data):
-            #     self.bg_color = torch.tensor(app_data[:3], dtype=torch.float32)  # only need RGB in [0, 1]
+            #     self.bg_color = torch.tensor(app_data[:3], dtype=torch.np.float32)  # only need RGB in [0, 1]
             #     self.need_update = True
             # dpg.add_color_edit((self.bg_color*255).tolist(), label="Background Color", width=200, no_alpha=True, callback=callback_change_bg)
 
@@ -457,7 +455,125 @@ class LocalViewer(Mini3DViewer):
 
                     self.need_update = True
                 dpg.add_listbox(self.keyframes, width=200, tag="_listbox_keyframes", callback=callback_set_current_keyframe)
-
+                # add manual key frames
+                self.manual_key_frames = [
+                    {
+                        'rot': np.array([0.12845670052713626, 0.3911218873012749, 0.04349290594446551, 0.9102916634222662], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([0.1241163190942145, 0.22927181121348672, 0.022238832291733228, 0.9651606137092886], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([0.11771155320349946, 0.12924004000118156, 0.007559415927074113, 0.9845729315463402], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([0.1273665316891493, 0.04522232790923264, 0.006163521461862363, 0.9908050861128721], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([0.12523362491555481, -0.047280686384868494, -0.00471256756918486, 0.990988833232944], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([0.11963654985759396, -0.12226587629601156, -0.010977756829316329, 0.9851992896296344], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([0.13349822398986533, -0.22328017572370945, -0.023279273355937696, 0.9652886939938543], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([0.13509485099150081, -0.38241998691201334, -0.032130069655336144, 0.9134943861183511], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.11687478737901108, -0.38658575044642157, 0.05522862005676153, 0.9131492436362819], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.11749332239910888, -0.23122632613661667, 0.04562386454794905, 0.9647010771615695], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.13896990148361024, -0.12601667572576697, 0.01859872343436828, 0.9820698811221503], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.1495199668326914, -0.0445583248040299, -0.0006177727061756095, 0.9877539944570677], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.1291004374356289, 0.04658480881616941, -0.013753495479365427, 0.9904412016892217], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.1344806380543836, 0.12426444908253852, -0.012944467828555125, 0.9830085174785286], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.12885595556691845, 0.22656075736373854, -0.035817828226532906, 0.9647711900335955], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+                    {
+                        'rot': np.array([-0.11919636281810188, 0.3723500763715023, -0.06138207092653921, 0.9183571685819418], dtype=np.float32),
+                        'look_at': np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                        'radius': np.array([1.0], dtype=np.float32),
+                        'fovy': np.array([20.0], dtype=np.float32),
+                        'interval': 25,
+                    },
+            ]
+                for idx,keyframe in enumerate(self.manual_key_frames):
+                    self.keyframes.insert(idx, keyframe)
+                    dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
+                    dpg.set_value("_listbox_keyframes", idx+1)
                 # edit keyframes
                 with dpg.group():
                     # add
@@ -468,7 +584,7 @@ class LocalViewer(Mini3DViewer):
                             new_idx = int(dpg.get_value("_listbox_keyframes")) + 1
 
                         states = self.get_state_dict()
-                        
+                        print(states)
                         self.keyframes.insert(new_idx, states)
                         dpg.configure_item("_listbox_keyframes", items=list(range(len(self.keyframes))))
                         dpg.set_value("_listbox_keyframes", new_idx)

@@ -146,3 +146,5 @@ dmypy.json
 *.npy
 *.npz
 *.pkl
+*.png
+viewer_output

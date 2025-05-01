@@ -205,7 +205,7 @@ class OrbitCamera:
 class Mini3DViewerConfig:
     W: int = 960
     """GUI width"""
-    H: int = 540
+    H: int = 960
     """GUI height"""
     radius: float = 1
     """default GUI camera radius from center"""
@@ -251,7 +251,7 @@ class Mini3DViewer:
         dpg.create_context()
         self.define_gui()
         self.register_callbacks()
-        dpg.create_viewport(title=title, width=self.W, height=self.H, resizable=True)
+        dpg.create_viewport(title=title, width=self.W, height=self.H, resizable=True,x_pos=0, y_pos=0)
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
