@@ -7,6 +7,15 @@ modes = {
     "Sel-LMK": "selected_lmk",
     "MESH": "mesh"
 }
+# do not call me racist please
+# 074 - "indian" guy
+# 104 - white guy with big jawline
+# 218 - bald
+# 253 - jake peralta
+# 264 - indian woman
+# 302 - white woman
+# 304 - white old woman
+# 306 - example guy (semi - bald)
 
 def run_viewer():
     id1 = var1.get()
