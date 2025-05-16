@@ -28,7 +28,7 @@ from gaussian_renderer import GaussianModel, FlameGaussianModel
 from gaussian_renderer import render
 from ifmorph.util import warp_points_ncf
 from ifmorph.model import from_pth
-
+from ifmorph.neural_odes import NeuralODE
 
 NO_MESH_VIEWER = True
 
@@ -162,13 +162,18 @@ class LocalViewer(Mini3DViewer):
         self.times = torch.arange(0, 1.0, 0.01).to(self.gaussians_1._xyz.device).float()
         xyz_1 = self.gaussians_1.get_xyz
         xyz_2 = self.gaussians_2.get_xyz
-        with torch.no_grad():
-            self.xyz_1_warp = []
-            self.xyz_2_warp = []
-            for t in self.times:
-                # warp the points
-                self.xyz_1_warp.append(warp_points_ncf(warp_net, xyz_1, t))
-                self.xyz_2_warp.append(warp_points_ncf(warp_net, xyz_2, t-1))
+        if isinstance(warp_net, NeuralODE):
+            with torch.no_grad():
+                self.xyz_1_warp = warp_net(self.times, xyz_1)
+                self.xyz_2_warp = warp_net(-self.times, xyz_2)
+        else:
+            with torch.no_grad():
+                self.xyz_1_warp = []
+                self.xyz_2_warp = []
+                for t in self.times:
+                    # warp the points
+                    self.xyz_1_warp.append(warp_points_ncf(warp_net, xyz_1, t))
+                    self.xyz_2_warp.append(warp_points_ncf(warp_net, xyz_2, t-1))
 
     def join_gaussians(self, t):
         # t is between 0.000 and 1.000
@@ -178,7 +183,10 @@ class LocalViewer(Mini3DViewer):
 
 
         xyz_1_warp = self.xyz_1_warp[idx_t]
-        xyz_2_warp = self.xyz_2_warp[idx_t]
+        if isinstance(self.warp_net, NeuralODE):
+            xyz_2_warp = self.xyz_2_warp[-1-idx_t]
+        else:
+            xyz_2_warp = self.xyz_2_warp[idx_t]
 
         features_dc_1 = self.gaussians_1._features_dc
         features_dc_2 = self.gaussians_2._features_dc
@@ -594,6 +602,75 @@ class LocalViewer(Mini3DViewer):
             dpg.set_value("_listbox_keyframes", idx)
             self.update_record_timeline()
 
+    def save_zero_five_one(self):
+        self.callback_update_time("_slider_time_t",0)
+        dpg.set_value("_slider_time_t", 0)
+        self.need_update = True
+        for slider_time in [0.0, 0.5, 1.0]:
+            dpg.set_value("_slider_time_t", slider_time)
+            self.callback_update_time("_slider_time_t", slider_time)
+            self.need_update = True
+            time.sleep(0.1)
+            for idx in range(self.num_record_timeline):
+                state_dict = {k: self.all_frames[k][idx] for k in self.all_frames}
+                self.apply_state_dict(state_dict)
+                self.need_update = True
+                time.sleep(0.05)
+
+                
+                name_1 = Path(self.cfg.point_path_1).parent.name
+                name_2 = Path(self.cfg.point_path_2).parent.name
+                folder = "benchmark"
+                slider_time_str = str(slider_time).replace(".", "")
+                folder_name = f"{name_1}-{name_2}_{slider_time_str}"
+                folder_cameras = "all"
+                folder_path = self.cfg.save_folder / folder / folder_name / folder_cameras
+                path = folder_path / f"{idx:04d}.png"
+                if not folder_path.exists():
+                    folder_path.mkdir(parents=True)
+                Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
+
+    def save_unblended_five(self):
+        self.callback_update_time("_slider_time_t",0.5)
+        dpg.set_value("_slider_time_t", 0.5)
+        self.need_update = True
+        time.sleep(0.1)
+        for idx in range(self.num_record_timeline):
+            state_dict = {k: self.all_frames[k][idx] for k in self.all_frames}
+            self.apply_state_dict(state_dict)
+            self.need_update = True
+            time.sleep(0.05)
+
+            for i in range(2):
+                opacity_1_blend = self.gaussians_1.get_opacity * (1-i)
+                opacity_2_blend = self.gaussians_2.get_opacity * i
+                new_opacity_feat_1 = self.gaussians_1.inverse_opacity_activation(opacity_1_blend)
+                new_opacity_feat_2 = self.gaussians_2.inverse_opacity_activation(opacity_2_blend)
+ 
+                self.gaussians_mid._opacity = torch.concat([new_opacity_feat_1, new_opacity_feat_2], dim=0)
+                self.need_update = True
+                time.sleep(0.05)
+                
+                
+                name_1 = Path(self.cfg.point_path_1).parent.name
+                name_2 = Path(self.cfg.point_path_2).parent.name
+                
+                if i==0: 
+                    file_name = name_1 + "_unblended"
+                else:
+                    file_name = name_2 + "_unblended"
+            
+                
+                folder = "benchmark"
+                folder_name = f"{name_1}-{name_2}_unblended"
+                folder_cameras = "all"
+                folder_path = self.cfg.save_folder / folder / folder_name / folder_cameras
+                path = folder_path / f"{idx:04d}_{file_name}.png"
+                if not folder_path.exists():
+                    folder_path.mkdir(parents=True)
+                Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
+
+
     def define_gui(self):
         super().define_gui()
         with dpg.window(label="Blend", tag="_Blend_window", autosize=True, pos=(self.W//2, 0)):
@@ -610,7 +687,10 @@ class LocalViewer(Mini3DViewer):
             dpg.add_button(label="SaveMove and morph (bottom cameras)", callback=lambda: self.save_move_morph_bottom())   
             dpg.add_button(label="Save-Move and morph (top cameras)", callback=lambda: self.save_move_morph_top())   
             dpg.add_button(label="Save-Move and morph (all cameras)", callback=lambda: self.save_move_morph())   
-            dpg.add_slider_int(label="Set Interval", tag="_slider_set_interval", min_value=1, max_value=100, default_value=10, callback=self.callback_interval)
+            dpg.add_slider_int(label="Set Interval", tag="_slider_set_interval", min_value=1, max_value=100, default_value=1, callback=self.callback_interval)
+            dpg.add_button(label="Save 0.0, 0.5, 1.0", callback=lambda: self.save_zero_five_one())
+            dpg.add_button(label="Save unblended 0.5", callback=lambda: self.save_unblended_five())
+
         # window: rendering options ==================================================================================================
         with dpg.window(label="Render", tag="_render_window", autosize=True):
 
