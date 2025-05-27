@@ -15,6 +15,63 @@ from datetime import datetime
 import numpy as np
 import random
 
+def inverse_build_rotation(R):
+    """
+    Compute the quaternion from a batch of 3x3 rotation matrices.
+
+    Parameters:
+        R (torch.Tensor): Batch of 3x3 rotation matrices (shape: [N, 3, 3]).
+
+    Returns:
+        torch.Tensor: Batch of quaternions (shape: [N, 4]), where each quaternion is [r, x, y, z].
+    """
+    N = R.size(0)  # Batch size
+    q = torch.zeros((N, 4), device=R.device)  # Initialize quaternion tensor
+
+    # Compute the trace of the rotation matrix
+    trace = R[:, 0, 0] + R[:, 1, 1] + R[:, 2, 2]
+
+    # Case 1: trace > 0
+    mask = trace > 0
+    s = torch.sqrt(trace[mask] + 1.0) * 2  # s = 4 * r
+    q[mask, 0] = 0.25 * s
+    q[mask, 1] = (R[mask, 2, 1] - R[mask, 1, 2]) / s
+    q[mask, 2] = (R[mask, 0, 2] - R[mask, 2, 0]) / s
+    q[mask, 3] = (R[mask, 1, 0] - R[mask, 0, 1]) / s
+
+    # Case 2: trace <= 0
+    mask = ~mask
+    max_diag = torch.argmax(torch.stack([R[mask, 0, 0], R[mask, 1, 1], R[mask, 2, 2]], dim=1), dim=1)
+
+    # If max_diag == 0
+    mask0 = mask.clone()
+    mask0[mask] = max_diag == 0
+    s = torch.sqrt(1.0 + R[mask0, 0, 0] - R[mask0, 1, 1] - R[mask0, 2, 2]) * 2  # s = 4 * x
+    q[mask0, 0] = (R[mask0, 2, 1] - R[mask0, 1, 2]) / s
+    q[mask0, 1] = 0.25 * s
+    q[mask0, 2] = (R[mask0, 0, 1] + R[mask0, 1, 0]) / s
+    q[mask0, 3] = (R[mask0, 0, 2] + R[mask0, 2, 0]) / s
+
+    # If max_diag == 1
+    mask1 = mask.clone()
+    mask1[mask] = max_diag == 1
+    s = torch.sqrt(1.0 + R[mask1, 1, 1] - R[mask1, 0, 0] - R[mask1, 2, 2]) * 2  # s = 4 * y
+    q[mask1, 0] = (R[mask1, 0, 2] - R[mask1, 2, 0]) / s
+    q[mask1, 1] = (R[mask1, 0, 1] + R[mask1, 1, 0]) / s
+    q[mask1, 2] = 0.25 * s
+    q[mask1, 3] = (R[mask1, 1, 2] + R[mask1, 2, 1]) / s
+
+    # If max_diag == 2
+    mask2 = mask.clone()
+    mask2[mask] = max_diag == 2
+    s = torch.sqrt(1.0 + R[mask2, 2, 2] - R[mask2, 0, 0] - R[mask2, 1, 1]) * 2  # s = 4 * z
+    q[mask2, 0] = (R[mask2, 1, 0] - R[mask2, 0, 1]) / s
+    q[mask2, 1] = (R[mask2, 0, 2] + R[mask2, 2, 0]) / s
+    q[mask2, 2] = (R[mask2, 1, 2] + R[mask2, 2, 1]) / s
+    q[mask2, 3] = 0.25 * s
+
+    return q
+
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
 

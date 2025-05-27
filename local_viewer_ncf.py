@@ -29,6 +29,9 @@ from gaussian_renderer import render
 from ifmorph.util import warp_points_ncf
 from ifmorph.model import from_pth
 from ifmorph.neural_odes import NeuralODE
+from ifmorph.diff_operators import jacobian_flat, jacobian
+from utils.general_utils import build_scaling_rotation, strip_symmetric, inverse_build_rotation
+from ifmorph.fd_models import convert_to_fd
 
 NO_MESH_VIEWER = True
 
@@ -73,6 +76,8 @@ class Config(Mini3DViewerConfig):
     """The UI will be simplified in demo mode."""
     warp_file_checkpoint: Optional[Path] = None
     """Path to the warp file checkpoint"""
+
+
 
 class LocalViewer(Mini3DViewer):
     def __init__(self, cfg: Config):
@@ -138,6 +143,8 @@ class LocalViewer(Mini3DViewer):
                     weights_file = self.cfg.warp_file_checkpoint
                     warp_net = torch.load(weights_file, map_location="cuda:0", weights_only=False)
                     self.warp_net = warp_net.to("cuda:0").eval().to(dtype=torch.float32)
+                    self.warp_net = convert_to_fd(self.warp_net)
+
                     self.precalculate_warping(self.warp_net)
                     try:
                         self.warp_net.method = "dopri5"
@@ -157,25 +164,67 @@ class LocalViewer(Mini3DViewer):
             np.save(f"media/selected_lmk_{id}.npy",
                 self.gaussians_1.get_landmarks_from_meshes())
     
-    def precalculate_warping(self,warp_net):
+    def precalculate_warping(self,warp_net, batch = 400000):
         # Precalculate the warping for the two gaussians
-        self.times = torch.arange(0, 1.0, 0.01).to(self.gaussians_1._xyz.device).float()
+        self.times = torch.arange(0, 1.0, 0.5).to(self.gaussians_1._xyz.device).float()
         xyz_1 = self.gaussians_1.get_xyz
         xyz_2 = self.gaussians_2.get_xyz
-        if isinstance(warp_net, NeuralODE):
-            with torch.no_grad():
+
+
+        with torch.no_grad():
+            if isinstance(warp_net, NeuralODE):
                 self.xyz_1_warp = warp_net(self.times, xyz_1)
                 self.xyz_2_warp = warp_net(-self.times, xyz_2)
-        else:
-            with torch.no_grad():
+            else:
+                
                 self.xyz_1_warp = []
                 self.xyz_2_warp = []
-                for t in self.times:
-                    # warp the points
-                    self.xyz_1_warp.append(warp_points_ncf(warp_net, xyz_1, t))
-                    self.xyz_2_warp.append(warp_points_ncf(warp_net, xyz_2, t-1))
+                self.jacobian_1_warp = []
+                self.jacobian_2_warp = []
 
-    def join_gaussians(self, t):
+                batches_xyz_1 = xyz_1.split(batch)
+                batches_xyz_2 = xyz_2.split(batch)    
+                for t in self.times:
+                    print(f"Precalculating warping for t={t:.3f}...")
+                    start = time.time()
+                    batches_jacobian_1_warp = []
+                    batches_jacobian_2_warp = []
+
+                    batches_warped_1 = []
+                    batches_warped_2 = []
+                    for xyz_1, xyz_2 in zip(batches_xyz_1, batches_xyz_2):
+                        # warp the points
+                        with torch.enable_grad():
+                            xyz_1.requires_grad_(True)
+                            xyz_2.requires_grad_(True)
+
+                            xyz_1_warp = warp_points_ncf(warp_net, xyz_1, t)
+                            batches_warped_1.append(xyz_1_warp.clone().detach())
+
+                            xyz_2_warp = warp_points_ncf(warp_net, xyz_2, t-1)
+                            batches_warped_2.append(xyz_2_warp.clone().detach())
+
+                            jac_1 = jacobian(xyz_1_warp.unsqueeze(0), xyz_1)[0].squeeze(0).detach()
+                            jac_2 = jacobian(xyz_2_warp.unsqueeze(0), xyz_2)[0].squeeze(0).detach()
+
+                            batches_jacobian_1_warp.append(jac_1)
+                            batches_jacobian_2_warp.append(jac_2)
+
+                    self.jacobian_1_warp.append(torch.concat(batches_jacobian_1_warp, dim=0))
+                    self.jacobian_2_warp.append(torch.concat(batches_jacobian_2_warp, dim=0))
+                    self.xyz_1_warp.append(torch.concat(batches_warped_1, dim=0))
+                    self.xyz_2_warp.append(torch.concat(batches_warped_2, dim=0))
+
+                    end = time.time()
+                    print(f"Precalculated warping for t={t:.3f} in {end - start:.2f} seconds.")
+
+
+    def build_covariance_from_scaling_rotation(self, scaling, scaling_modifier, rotation):
+            L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+            actual_covariance = L @ L.transpose(1, 2)
+            return actual_covariance
+
+    def join_gaussians(self, t, filter_by_scaling= 0.3):
         # t is between 0.000 and 1.000
         # clamp within a range 0.01
         idx_t = np.abs(self.times.cpu().numpy() - t).argmin()
@@ -194,11 +243,37 @@ class LocalViewer(Mini3DViewer):
         features_rest_1 = self.gaussians_1._features_rest
         features_rest_2 = self.gaussians_2._features_rest
 
+
+
         scaling_1 = self.gaussians_1._scaling
         scaling_2 = self.gaussians_2._scaling
 
         rotation_1 = self.gaussians_1._rotation
         rotation_2 = self.gaussians_2._rotation
+
+        scaling_1_warped = scaling_1
+        scaling_2_warped = scaling_2
+
+        rotation_1_warped = rotation_1
+        rotation_2_warped = rotation_2
+        '''
+
+        covariance_1 = self.build_covariance_from_scaling_rotation(scaling_1.exp(), 1., rotation_1)
+        covariance_2 = self.build_covariance_from_scaling_rotation(scaling_2.exp(), 1., rotation_2)
+
+        new_covariance_1 = self.jacobian_1_warp[idx_t] @ covariance_1 @ self.jacobian_1_warp[idx_t].transpose(1, 2)
+        new_covariance_2 = self.jacobian_2_warp[idx_t] @ covariance_2 @ self.jacobian_2_warp[idx_t].transpose(1, 2)
+
+        new_scales_1, new_rotations_1 = torch.linalg.eigh(new_covariance_1)
+        new_scales_2, new_rotations_2 = torch.linalg.eigh(new_covariance_2)
+
+
+        scaling_1_warped = torch.log(torch.sqrt(new_scales_1+filter_by_scaling))
+        scaling_2_warped = torch.log(torch.sqrt(new_scales_2+filter_by_scaling))
+
+        rotation_1_warped = inverse_build_rotation(new_rotations_1)
+        rotation_2_warped = inverse_build_rotation(new_rotations_2)
+        '''
 
         opacity_1_blend = self.gaussians_1.get_opacity * (1-t)
         opacity_2_blend = self.gaussians_2.get_opacity * t
@@ -208,63 +283,13 @@ class LocalViewer(Mini3DViewer):
 
         self.gaussians_mid._features_dc = torch.concat([features_dc_1, features_dc_2], dim=0)
         self.gaussians_mid._features_rest = torch.concat([features_rest_1, features_rest_2], dim=0)
-        self.gaussians_mid._scaling = torch.concat([scaling_1, scaling_2], dim=0)
-        self.gaussians_mid._rotation = torch.concat([rotation_1, rotation_2], dim=0)
+        self.gaussians_mid._scaling = torch.concat([scaling_1_warped, scaling_2_warped], dim=0)
+        self.gaussians_mid._rotation = torch.concat([rotation_1_warped, rotation_2_warped], dim=0)
         self.gaussians_mid._opacity = torch.concat([new_opacity_feat_1, new_opacity_feat_2], dim=0)
 
 
 
         self.gaussians_mid._xyz = torch.concat([xyz_1_warp, xyz_2_warp], dim=0)
-    #                 self.join_gaussians(0, self.warp_net)
-    #         else:
-    #             raise FileNotFoundError(f'{self.cfg.point_path_1} does not exist.')
-        
-    #     if (Path(self.cfg.point_path_1).parent / "flame_param.npz").exists():
-    #         id = Path(self.cfg.point_path_1).parent.name
-    #         self.gaussians_1.save_ply_3dgs_format(f'media/output_{id}.ply')
-    #         np.save(f"media/lmk_{id}.npy",
-    #             self.gaussians_1.get_landmarks().squeeze(0).cpu().numpy())
-    #         np.save(f"media/mesh_{id}.npy",
-    #             self.gaussians_1.get_meshes().squeeze(0).cpu().numpy())
-    #         np.save(f"media/selected_lmk_{id}.npy",
-    #             self.gaussians_1.get_landmarks_from_meshes())
-    # def join_gaussians(self, t, warp_net):
-
-    #     xyz_1 = self.gaussians_1.get_xyz
-    #     xyz_2 = self.gaussians_2.get_xyz
-
-    #     xyz_1_warp = warp_points_ncf(warp_net, xyz_1, t)
-    #     xyz_2_warp = warp_points_ncf(warp_net, xyz_2, t-1)
-
-    #     features_dc_1 = self.gaussians_1._features_dc
-    #     features_dc_2 = self.gaussians_2._features_dc
-
-    #     features_rest_1 = self.gaussians_1._features_rest
-    #     features_rest_2 = self.gaussians_2._features_rest
-
-    #     scaling_1 = self.gaussians_1._scaling
-    #     scaling_2 = self.gaussians_2._scaling
-
-    #     rotation_1 = self.gaussians_1._rotation
-    #     rotation_2 = self.gaussians_2._rotation
-
-    #     opacity_1_blend = self.gaussians_1.get_opacity * (1-t)
-    #     opacity_2_blend = self.gaussians_2.get_opacity * t
-
-    #     new_opacity_feat_1 = self.gaussians_1.inverse_opacity_activation(opacity_1_blend)
-    #     new_opacity_feat_2 = self.gaussians_2.inverse_opacity_activation(opacity_2_blend)
-
-    #     self.gaussians_mid._features_dc = torch.concat([features_dc_1, features_dc_2], dim=0)
-    #     self.gaussians_mid._features_rest = torch.concat([features_rest_1, features_rest_2], dim=0)
-    #     self.gaussians_mid._scaling = torch.concat([scaling_1, scaling_2], dim=0)
-    #     self.gaussians_mid._rotation = torch.concat([rotation_1, rotation_2], dim=0)
-    #     self.gaussians_mid._opacity = torch.concat([new_opacity_feat_1, new_opacity_feat_2], dim=0)
-
-
-
-    #     self.gaussians_mid._xyz = torch.concat([xyz_1_warp, xyz_2_warp], dim=0)
-
-    
 
 
 
@@ -455,7 +480,8 @@ class LocalViewer(Mini3DViewer):
         }
     def callback_update_time(self, sender, app_data):
         t = app_data  # t in [0.0, 1.0]
-        self.join_gaussians(t)  # assumes self.warp_net is set
+        with torch.no_grad():
+            self.join_gaussians(t)  # assumes self.warp_net is set
         self.need_update = True
 
     def play_slider(self):
