@@ -256,24 +256,9 @@ class LocalViewer(Mini3DViewer):
 
         rotation_1_warped = rotation_1
         rotation_2_warped = rotation_2
-        '''
 
-        covariance_1 = self.build_covariance_from_scaling_rotation(scaling_1.exp(), 1., rotation_1)
-        covariance_2 = self.build_covariance_from_scaling_rotation(scaling_2.exp(), 1., rotation_2)
-
-        new_covariance_1 = self.jacobian_1_warp[idx_t] @ covariance_1 @ self.jacobian_1_warp[idx_t].transpose(1, 2)
-        new_covariance_2 = self.jacobian_2_warp[idx_t] @ covariance_2 @ self.jacobian_2_warp[idx_t].transpose(1, 2)
-
-        new_scales_1, new_rotations_1 = torch.linalg.eigh(new_covariance_1)
-        new_scales_2, new_rotations_2 = torch.linalg.eigh(new_covariance_2)
-
-
-        scaling_1_warped = torch.log(torch.sqrt(new_scales_1+filter_by_scaling))
-        scaling_2_warped = torch.log(torch.sqrt(new_scales_2+filter_by_scaling))
-
-        rotation_1_warped = inverse_build_rotation(new_rotations_1)
-        rotation_2_warped = inverse_build_rotation(new_rotations_2)
-        '''
+        jacobians_1 = self.jacobian_1_warp[idx_t]
+        jacobians_2 = self.jacobian_2_warp[idx_t]
 
         opacity_1_blend = self.gaussians_1.get_opacity * (1-t)
         opacity_2_blend = self.gaussians_2.get_opacity * t
@@ -287,11 +272,9 @@ class LocalViewer(Mini3DViewer):
         self.gaussians_mid._rotation = torch.concat([rotation_1_warped, rotation_2_warped], dim=0)
         self.gaussians_mid._opacity = torch.concat([new_opacity_feat_1, new_opacity_feat_2], dim=0)
 
-
+        self.gaussians_mid.jacobian = torch.concat([jacobians_1, jacobians_2], dim=0)
 
         self.gaussians_mid._xyz = torch.concat([xyz_1_warp, xyz_2_warp], dim=0)
-
-
 
 
     def refresh_stat(self):
@@ -695,7 +678,10 @@ class LocalViewer(Mini3DViewer):
                 if not folder_path.exists():
                     folder_path.mkdir(parents=True)
                 Image.fromarray((np.clip(self.render_buffer, 0, 1) * 255).astype(np.uint8)).save(path)
-
+    
+    def update_needupdate(self, appdata):
+        self.need_update = True
+    
 
     def define_gui(self):
         super().define_gui()
@@ -717,6 +703,10 @@ class LocalViewer(Mini3DViewer):
             dpg.add_button(label="Save 0.0, 0.5, 1.0", callback=lambda: self.save_zero_five_one())
             dpg.add_button(label="Save unblended 0.5", callback=lambda: self.save_unblended_five())
 
+            dpg.add_checkbox(label="use jacobian", default_value=False, tag="_checkbox_use_jacobian", callback=self.update_needupdate)
+
+
+
         # window: rendering options ==================================================================================================
         with dpg.window(label="Render", tag="_render_window", autosize=True):
 
@@ -730,6 +720,7 @@ class LocalViewer(Mini3DViewer):
                 # show splatting
                 def callback_show_splatting(sender, app_data):
                     self.need_update = True
+
                 dpg.add_checkbox(label="show splatting", default_value=True, callback=callback_show_splatting, tag="_checkbox_show_splatting")
 
                 dpg.add_spacer(width=10)
@@ -1164,12 +1155,14 @@ class LocalViewer(Mini3DViewer):
 
                 if dpg.get_value("_checkbox_show_splatting"):
                     # rgb
-                    rgb_splatting = render(cam, self.gaussians_1, self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"))["render"].permute(1, 2, 0).contiguous()
-                    if self.cfg.point_path_2 is not None:
+                    use_jacobian = dpg.get_value("_checkbox_use_jacobian")
+                    if self.cfg.point_path_2 is None:
+                        rgb_splatting = render(cam, self.gaussians_1, self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"),use_jacobian=use_jacobian)["render"].permute(1, 2, 0).contiguous()
+                    elif self.cfg.point_path_2 is not None:
                         rgb_splatting = render(
                             cam,
                             self.gaussians_mid,
-                            self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier")
+                            self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"),use_jacobian=use_jacobian
                         )["render"].permute(1, 2, 0).contiguous()
                         
                     # opacity

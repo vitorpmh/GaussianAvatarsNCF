@@ -15,8 +15,9 @@ from typing import Union
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from scene import GaussianModel, FlameGaussianModel
 from utils.sh_utils import eval_sh
+from utils.general_utils import strip_symmetric
 
-def render(viewpoint_camera, pc : Union[GaussianModel, FlameGaussianModel], pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None):
+def render(viewpoint_camera, pc : Union[GaussianModel, FlameGaussianModel], pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, use_jacobian = False):
     """
     Render the scene. 
     
@@ -59,13 +60,14 @@ def render(viewpoint_camera, pc : Union[GaussianModel, FlameGaussianModel], pipe
     # scaling / rotation by the rasterizer.
     scales = None
     rotations = None
-    cov3D_precomp = None
-    if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
-    else:
-        scales = pc.get_scaling
-        rotations = pc.get_rotation
+    cov3D_precomp = pc.get_covariance(scaling_modifier)
 
+    if hasattr(pc, 'jacobian') and use_jacobian:
+        jacobian = pc.jacobian
+        cov3D_precomp = jacobian.transpose(1, 2) @ cov3D_precomp @ jacobian
+
+
+    cov3D_precomp = strip_symmetric(cov3D_precomp)
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
