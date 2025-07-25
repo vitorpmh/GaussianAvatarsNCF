@@ -703,7 +703,10 @@ class LocalViewer(Mini3DViewer):
             dpg.add_button(label="Save 0.0, 0.5, 1.0", callback=lambda: self.save_zero_five_one())
             dpg.add_button(label="Save unblended 0.5", callback=lambda: self.save_unblended_five())
 
-            dpg.add_checkbox(label="use jacobian", default_value=False, tag="_checkbox_use_jacobian", callback=self.update_needupdate)
+            dpg.add_checkbox(label="use jacobian_cov", default_value=False, tag="_checkbox_use_jacobian_cov", callback=self.update_needupdate)
+            dpg.add_checkbox(label="use jacobian_harmonics", default_value=False, tag="_checkbox_use_jacobian_harm", callback=self.update_needupdate)
+
+        # ==================================================================================================                
 
 
 
@@ -1155,14 +1158,16 @@ class LocalViewer(Mini3DViewer):
 
                 if dpg.get_value("_checkbox_show_splatting"):
                     # rgb
-                    use_jacobian = dpg.get_value("_checkbox_use_jacobian")
+                    use_jacobian_cov = dpg.get_value("_checkbox_use_jacobian_cov")
+                    use_jacobian_harm = dpg.get_value("_checkbox_use_jacobian_harm")
                     if self.cfg.point_path_2 is None:
                         rgb_splatting = render(cam, self.gaussians_1, self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"),use_jacobian=use_jacobian)["render"].permute(1, 2, 0).contiguous()
                     elif self.cfg.point_path_2 is not None:
                         rgb_splatting = render(
                             cam,
                             self.gaussians_mid,
-                            self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"),use_jacobian=use_jacobian
+                            self.cfg.pipeline, torch.tensor(self.cfg.background_color).cuda(), scaling_modifier=dpg.get_value("_slider_scaling_modifier"),
+                                use_jacobian_cov=use_jacobian_cov, use_jacobia_harm=use_jacobian_harm
                         )["render"].permute(1, 2, 0).contiguous()
                         
                     # opacity

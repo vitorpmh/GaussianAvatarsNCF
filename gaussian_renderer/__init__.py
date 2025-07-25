@@ -17,7 +17,7 @@ from scene import GaussianModel, FlameGaussianModel
 from utils.sh_utils import eval_sh
 from utils.general_utils import strip_symmetric
 
-def render(viewpoint_camera, pc : Union[GaussianModel, FlameGaussianModel], pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, use_jacobian = False):
+def render(viewpoint_camera, pc : Union[GaussianModel, FlameGaussianModel], pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, use_jacobian_cov = False, use_jacobia_harm: bool = False):
     """
     Render the scene. 
     
@@ -61,28 +61,40 @@ def render(viewpoint_camera, pc : Union[GaussianModel, FlameGaussianModel], pipe
     scales = None
     rotations = None
     cov3D_precomp = pc.get_covariance(scaling_modifier)
+    correction_alpha = None
+    shs = None
 
-    if hasattr(pc, 'jacobian') and use_jacobian:
+    shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+    dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+    dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+
+
+    if hasattr(pc, 'jacobian'):
         jacobian = pc.jacobian
-        cov3D_precomp = jacobian.transpose(1, 2) @ cov3D_precomp @ jacobian
+        if use_jacobian_cov:
+            cov3D_precomp = jacobian.transpose(1, 2) @ cov3D_precomp @ jacobian
 
+            filtered_cov3D_precomp = cov3D_precomp + torch.eye(3, device=cov3D_precomp.device, dtype=cov3D_precomp.dtype).unsqueeze(0)*0.03
+            correction_alpha = torch.linalg.det(cov3D_precomp).clamp(min=0.001)/ torch.linalg.det(filtered_cov3D_precomp).clamp(min=0.001)
+        if use_jacobia_harm:
+            dir_pp_normalized_comp = dir_pp_normalized.unsqueeze(-1).to(torch.float64)
+            jacobian_comp = jacobian.to(torch.float64)
+            transformed_vector = torch.linalg.solve(
+                jacobian_comp, dir_pp_normalized_comp).squeeze(-1).to(torch.float32)
+            dir_pp_normalized = torch.nn.functional.normalize(transformed_vector, dim=1)
 
-    cov3D_precomp = strip_symmetric(cov3D_precomp)
+    
+    sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+    colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
-    shs = None
-    colors_precomp = None
-    if override_color is None:
-        if pipe.convert_SHs_python:
-            shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
-            dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
-            dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
-            sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
-            colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
-        else:
-            shs = pc.get_features
-    else:
-        colors_precomp = override_color
+
+    
+    if correction_alpha is not None:
+        opacity = opacity * correction_alpha.unsqueeze(1)
+
+    cov3D_precomp = strip_symmetric(cov3D_precomp)
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     rendered_image, radii = rasterizer(
