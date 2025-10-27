@@ -37,7 +37,7 @@ def run_viewer():
 
     command = [
         "/home/vitor/anaconda3/envs/gaussian-avatars/bin/python",
-        "local_viewer_ncf.py",
+        "local_viewer_flowing.py",
         "--point_path_1", point_path_1,
         "--point_path_2", point_path_2,
         "--warp-file-checkpoint", warp_checkpoint
