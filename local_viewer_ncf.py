@@ -212,62 +212,7 @@ class LocalViewer(Mini3DViewer):
         self.gaussians_mid._rotation = torch.concat([rotation_1, rotation_2], dim=0)
         self.gaussians_mid._opacity = torch.concat([new_opacity_feat_1, new_opacity_feat_2], dim=0)
 
-
-
         self.gaussians_mid._xyz = torch.concat([xyz_1_warp, xyz_2_warp], dim=0)
-    #                 self.join_gaussians(0, self.warp_net)
-    #         else:
-    #             raise FileNotFoundError(f'{self.cfg.point_path_1} does not exist.')
-        
-    #     if (Path(self.cfg.point_path_1).parent / "flame_param.npz").exists():
-    #         id = Path(self.cfg.point_path_1).parent.name
-    #         self.gaussians_1.save_ply_3dgs_format(f'media/output_{id}.ply')
-    #         np.save(f"media/lmk_{id}.npy",
-    #             self.gaussians_1.get_landmarks().squeeze(0).cpu().numpy())
-    #         np.save(f"media/mesh_{id}.npy",
-    #             self.gaussians_1.get_meshes().squeeze(0).cpu().numpy())
-    #         np.save(f"media/selected_lmk_{id}.npy",
-    #             self.gaussians_1.get_landmarks_from_meshes())
-    # def join_gaussians(self, t, warp_net):
-
-    #     xyz_1 = self.gaussians_1.get_xyz
-    #     xyz_2 = self.gaussians_2.get_xyz
-
-    #     xyz_1_warp = warp_points_ncf(warp_net, xyz_1, t)
-    #     xyz_2_warp = warp_points_ncf(warp_net, xyz_2, t-1)
-
-    #     features_dc_1 = self.gaussians_1._features_dc
-    #     features_dc_2 = self.gaussians_2._features_dc
-
-    #     features_rest_1 = self.gaussians_1._features_rest
-    #     features_rest_2 = self.gaussians_2._features_rest
-
-    #     scaling_1 = self.gaussians_1._scaling
-    #     scaling_2 = self.gaussians_2._scaling
-
-    #     rotation_1 = self.gaussians_1._rotation
-    #     rotation_2 = self.gaussians_2._rotation
-
-    #     opacity_1_blend = self.gaussians_1.get_opacity * (1-t)
-    #     opacity_2_blend = self.gaussians_2.get_opacity * t
-
-    #     new_opacity_feat_1 = self.gaussians_1.inverse_opacity_activation(opacity_1_blend)
-    #     new_opacity_feat_2 = self.gaussians_2.inverse_opacity_activation(opacity_2_blend)
-
-    #     self.gaussians_mid._features_dc = torch.concat([features_dc_1, features_dc_2], dim=0)
-    #     self.gaussians_mid._features_rest = torch.concat([features_rest_1, features_rest_2], dim=0)
-    #     self.gaussians_mid._scaling = torch.concat([scaling_1, scaling_2], dim=0)
-    #     self.gaussians_mid._rotation = torch.concat([rotation_1, rotation_2], dim=0)
-    #     self.gaussians_mid._opacity = torch.concat([new_opacity_feat_1, new_opacity_feat_2], dim=0)
-
-
-
-    #     self.gaussians_mid._xyz = torch.concat([xyz_1_warp, xyz_2_warp], dim=0)
-
-    
-
-
-
 
     def refresh_stat(self):
         if self.last_time_fresh is not None:
