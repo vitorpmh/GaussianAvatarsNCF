@@ -137,7 +137,12 @@ python local_viewer.py \
 > The viewer is implemented in Python, making development convenient but not ideal for performance benchmarking. As such, please avoid using the viewer to measure the rendering frame rate of our method. Instead, use the [FPS benchmark script](https://github.com/ShenhanQian/GaussianAvatars/blob/main/doc/offline_render.md#fps-benchmark) for accurate performance evaluation.
 
 
-### [3. Offline Rendering](doc/offline_render.md)
+### Convert from Gaussain Avatars to traditional representation
+Our technique assumes that the representation is the standard  `.ply` from 3DGS. To make new tests train a standard gaussian-avatar and convert to the 3DGS representation with:
+```shell
+python convert_representation.py --point_path output/UNION10EMOEXP_104_eval_600k/point_cloud/iteration_600000/point_cloud.ply --point_output_path test_104/
+```
+You can use for any subject you wish for.
 
 ## Cite
 
