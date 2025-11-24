@@ -26,9 +26,9 @@ from uuid import uuid4
 from utils.viewer_utils import Mini3DViewer, Mini3DViewerConfig
 from gaussian_renderer import GaussianModel, FlameGaussianModel
 from gaussian_renderer import render
-from ifmorph.util import warp_points_ncf
-from ifmorph.model import from_pth
-from ifmorph.neural_odes import NeuralODE
+from flowing.util import warp_points_ncf
+from flowing.model import from_pth
+from flowing.neural_odes import NeuralODE
 
 NO_MESH_VIEWER = True
 

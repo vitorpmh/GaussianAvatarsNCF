@@ -22,6 +22,8 @@ You can apply this conversion to any subject you want.
 
 ### 🎭 Visualizing a Morphing
 
+You will have to create the python venv of gaussian avatars, and then install the flowing package inside it.
+
 To visualize a morph between two 3D head Gaussian avatars, use:
 
 ```bash
